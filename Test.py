@@ -2,10 +2,11 @@ import time
 import gc
 import torch
 import math
+import os
 import albumentations as A
 import numpy as np
 
-from albumentations.pytorch import ToTensorV2
+import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -21,13 +22,13 @@ from Model import Generator
 gc.collect()
 torch.cuda.empty_cache()
 
-dataset_name = "EyeQ"  # "EyeQ" "Mendeley"
+logdir = '08071145-trainval'
+checkpoint = f"output/{logdir}/best_epoch/genb.pth.tar"
+save_path = f"output/{logdir}/test_img"
+TEST_DIR = f"../CycleGAN/test_datasets"
 
-path = "Results"
-checkpoint = "Results/genb.pth.tar"
-save_path = f"Results/Testing {dataset_name}"
-TEST_DIR = f"datasets/{dataset_name}/test"
-
+if not os.path.exists(save_path):
+    os.mkdir(save_path)
 
 def masking(a, b):
     l_top = l_bottom = 0
@@ -73,16 +74,12 @@ gen = Generator().to(DEVICE)
 
 load_checkpoint(checkpoint, gen, None, None)
 
-transforms = A.Compose(
-    [
-        A.Resize(width=256, height=256),
-        A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], max_pixel_value=255),
-        ToTensorV2(),
-    ]
-)
+transforms_ = [
+               transforms.ToTensor(),
+               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
 
 val_dataset = ABDataset(
-    root_a=TEST_DIR, transform=transforms
+    root_a=TEST_DIR, transforms_=transforms_
 )
 
 val_loader = DataLoader(
@@ -98,15 +95,14 @@ ssim_values = []
 
 start = time.time()
 
-for idx, image in enumerate(loop):
+for idx, (image, filename) in enumerate(loop):
     image = image.to(DEVICE)
 
     with torch.cuda.amp.autocast():
         gen_image = gen(image)
         image, gen_image = masking(image*0.5+0.5, gen_image*0.5+0.5)
-
-        save_image(gen_image, f"{save_path}/{idx}_fake.png")
-        save_image(image, f"{save_path}/{idx}_real.png")
+        save_image(gen_image, f"{save_path}/{filename[0]}")
+        # save_image(image, f"{save_path}/{idx}_real.png")
 
         image = image.permute(1, 2, 0).detach().cpu().numpy()
         gen_image = gen_image.permute(1, 2, 0).detach().cpu().numpy()
@@ -122,7 +118,6 @@ metrics = [
     round((end - start) / len(val_loader), 3)
 ]
 
-f = open(f"{path}/Results {dataset_name}.txt", 'w')
-f.write(f"Testing PSNR :{metrics[0]} dB\n")
-f.write(f"Testing SSIM :{metrics[1]}\n")
-f.write(f"Single image time: {metrics[2]} seconds\n")
+print(f"Testing PSNR :{metrics[0]} dB\n")
+print(f"Testing SSIM :{metrics[1]}\n")
+print(f"Single image time: {metrics[2]} seconds\n")
